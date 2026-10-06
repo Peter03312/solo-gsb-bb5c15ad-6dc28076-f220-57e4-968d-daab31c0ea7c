@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}{{ sample.sample_no }} · 样品详情{% endblock %}
+
+{% block content %}
+<p><a href="/">← 返回样品总览</a></p>
+
+<h1>
+  样品 <span class="mono">{{ sample.sample_no }}</span>
+  <span class="badge {{ sample.status.value }}">{{ status_labels[sample.status] }}</span>
+  <span class="muted mono">状态版本 v{{ sample.version }}</span>
+</h1>
+
+{% if sample.status == SampleStatus.ISOLATED %}
+<div class="banner isolated">⛔ 样品隔离中：禁止一切转移（发起/确认交接均会被拒绝）。仅有注明理由的复核结论可解除隔离。</div>
+{% endif %}
+
+<section class="card">
+  <div class="kv">
+    <dt>名称</dt><dd>{{ sample.name or '—' }}</dd>
+    <dt>允许温区</dt><dd>{{ sample.temp_min }} ~ {{ sample.temp_max }} ℃</dd>
+    <dt>当前位置</dt><dd><strong>{{ sample.location }}</strong><span class="muted">（仅在接收人确认交接后才会变更）</span></dd>
+    <dt>登记时间</dt><dd>{{ sample.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</dd>
+    <dt>登记人</dt><dd>{{ staff.get(sample.created_by_id).name if sample.created_by_id and staff.get(sample.created_by_id) else '—' }}</dd>
+  </div>
+</section>
+
+<div class="grid grid-2">
+  <!-- 交接 -->
+  <section class="card">
+    <h2 style="margin-top:4px">发起交接</h2>
+    {% if sample.status == SampleStatus.ISOLATED %}
+      <p class="muted">隔离期间拒绝转移，无法发起新交接。请先由有权限人员登记注明理由的复核结论解除隔离。</p>
+    {% else %}
+    <form class="api-form" method="post" action="/api/samples/{{ sample.id }}/handovers"
+          data-success="交接已提交，等待接收人确认；确认前位置不变">
+      <div class="row">
+        <div>
+          <label>交出人 *</label>
+          <select name="giver_id" required>
+            <option value="">请选择</option>
+            {% for s in staff.values() %}<option value="{{ s.id }}">{{ s.name }}（{{ s.role }}）</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>接收人 *</label>
+          <select name="receiver_id" required>
+            <option value="">请选择</option>
+            {% for s in staff.values() %}<option value="{{ s.id }}">{{ s.name }}（{{ s.role }}）</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <label>目的地 *</label>
+      <input name="destination" required maxlength="160">
+      <label>备注</label>
+      <textarea name="note" maxlength="2000"></textarea>
+      <button type="submit">提交交接</button>
+    </form>
+    {% endif %}
+
+    <h2>交接记录</h2>
+    {% if handovers %}
+    <table>
+      <thead><tr><th>#</th><th>交出→接收</th><th>路线</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for h in handovers %}
+        <tr>
+          <td>{{ h.id }}</td>
+          <td>{{ staff[h.giver_id].name }} → {{ staff[h.receiver_id].name }}</td>
+          <td>{{ h.from_location }} → <strong>{{ h.destination }}</strong></td>
+          <td><span class="badge {{ h.status.value }}">{{ status_labels[h.status] }}</span></td>
+          <td class="nowrap">
+            {% if h.status.value == 'pending' %}
+            <form class="api-form inline" method="post" action="/api/handovers/{{ h.id }}/confirm?operator_id={{ h.receiver_id }}"
+                  data-success="已确认，位置已更新为目的地">
+              <button class="tiny" type="submit">以接收人身份确认</button>
+            </form>
+            <form class="api-form inline" method="post" action="/api/handovers/{{ h.id }}/cancel?operator_id={{ h.giver_id }}"
+                  data-success="交接已取消" data-confirm="确定取消该待确认交接？">
+              <button class="tiny secondary" type="submit">交出人取消</button>
+            </form>
+            {% elif h.status.value == 'invalidated' %}
+              <span class="muted">已失效，位置未改变</span>
+            {% else %}
+              <span class="muted">{{ h.confirmed_at.strftime('%m-%d %H:%M') if h.confirmed_at else '' }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">暂无交接记录。</p>{% endif %}
+  </section>
+
+  <!-- 温度 -->
+  <section class="card">
+    <h2 style="margin-top:4px">记录温度读数</h2>
+    <form class="api-form" method="post" action="/api/samples/{{ sample.id }}/readings"
+          data-success="读数已记录">
+      <input type="hidden" name="expected_version" value="{{ sample.version }}">
+      <div class="row">
+        <div>
+          <label>温度 ℃ *</label>
+          <input name="value" type="number" step="0.1" required>
+        </div>
+        <div>
+          <label>记录人 *</label>
+          <select name="recorder_id" required>
+            <option value="">请选择</option>
+            {% for s in staff.values() %}<option value="{{ s.id }}">{{ s.name }}（{{ s.role }}）</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <label>备注</label>
+      <textarea name="note" maxlength="2000"></textarea>
+      <button type="submit">提交读数</button>
+      <p class="muted">读数越界将<strong>立即隔离</strong>样品并使其待确认交接失效；页面版本号用于并发冲突检测。</p>
+    </form>
+
+    <h2>读数历史</h2>
+    <table>
+      <thead><tr><th>时间 (UTC)</th><th>读数</th><th>判定</th><th>记录人</th><th>更正</th></tr></thead>
+      <tbody>
+        {% for r in readings %}
+        <tr>
+          <td class="nowrap">{{ r.recorded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td class="{{ 'temp-ok' if r.in_range else 'temp-bad' }}">{{ r.value }} ℃</td>
+          <td>{{ '正常' if r.in_range else '越界' }}</td>
+          <td>{{ staff[r.recorder_id].name if staff.get(r.recorder_id) else r.recorder_id }}</td>
+          <td>
+            {% if r.corrects_reading_id %}
+              <span class="badge cat-warning">更正 #{{ r.corrects_reading_id }}</span>
+              <div class="muted">理由：{{ r.correction_reason }}；操作者：{{ staff[r.correction_operator_id].name if r.correction_operator_id and staff.get(r.correction_operator_id) else '—' }}</div>
+            {% else %}
+              <details>
+                <summary>更正</summary>
+                <form class="api-form" method="post" action="/api/readings/{{ r.id }}/correct"
+                      data-success="已保存更正记录；原始读数保留，隔离状态不会因此自动改变">
+                  <label>更正后温度 ℃ *</label>
+                  <input name="new_value" type="number" step="0.1" required>
+                  <label>更正理由 *</label>
+                  <textarea name="reason" required maxlength="2000" placeholder="必须注明理由；更正不会自动解除隔离"></textarea>
+                  <label>操作者 *</label>
+                  <select name="operator_id" required>
+                    <option value="">请选择</option>
+                    {% for s in staff.values() %}<option value="{{ s.id }}">{{ s.name }}（{{ s.role }}）</option>{% endfor %}
+                  </select>
+                  <button class="tiny warn" type="submit">保存更正</button>
+                </form>
+              </details>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<!-- 复核与隔离 -->
+<section class="card" style="margin-top:16px">
+  <h2 style="margin-top:4px">隔离与复核</h2>
+  {% if open_isolation %}
+    <div class="banner isolated">当前隔离 #{{ open_isolation.id }}：{{ open_isolation.reason }}（{{ open_isolation.opened_at.strftime('%Y-%m-%d %H:%M UTC') }} 开启）</div>
+    <form class="api-form" method="post" action="/api/samples/{{ sample.id }}/reviews">
+      <input type="hidden" name="expected_version" value="{{ sample.version }}">
+      <div class="row">
+        <div>
+          <label>复核人 *</label>
+          <select name="reviewer_id" required>
+            <option value="">请选择</option>
+            {% for s in staff.values() %}<option value="{{ s.id }}">{{ s.name }}（{{ s.role }}）</option>{% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>复核结论 *</label>
+          <select name="result" required>
+            {% for rr in review_results %}<option value="{{ rr.value }}">{{ status_labels[rr] }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <label>理由（必填）*</label>
+      <textarea name="reason" required maxlength="2000" placeholder="只有注明理由的复核结论为“复核通过”时才会解除隔离；继续隔离时样品保持禁止转移"></textarea>
+      <button type="submit" class="warn">提交复核结论</button>
+    </form>
+  {% else %}
+    <p class="muted">样品当前未隔离。越界时系统会自动开启隔离，且只能通过复核结论解除。</p>
+  {% endif %}
+
+  {% if isolations %}
+  <table style="margin-top:10px">
+    <thead><tr><th>#</th><th>开启原因</th><th>开启时间/人</th><th>解除时间/人</th></tr></thead>
+    <tbody>
+      {% for i in isolations %}
+      <tr>
+        <td>{{ i.id }}</td>
+        <td>{{ i.reason }}</td>
+        <td class="nowrap">{{ i.opened_at.strftime('%Y-%m-%d %H:%M') }} / {{ staff[i.opened_by_id].name if staff.get(i.opened_by_id) else '—' }}</td>
+        <td class="nowrap">
+          {% if i.released_at %}
+            {{ i.released_at.strftime('%Y-%m-%d %H:%M') }} / {{ staff[i.released_by_id].name if i.released_by_id and staff.get(i.released_by_id) else '—' }}
+          {% else %}<span class="badge isolated">未解除</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<!-- 时间线 -->
+<h2>流转时间线</h2>
+<section class="card">
+  <ul class="timeline">
+    {% for e in timeline %}
+    <li class="{{ e.category }}">
+      <div class="t-head">
+        <span class="t-title">{{ e.title }}</span>
+        <span class="t-time">{{ e.at.strftime('%Y-%m-%d %H:%M:%S UTC') }}</span>
+      </div>
+      {% if e.lines %}
+      <ul class="lines">
+        {% for line in e.lines %}<li>{{ line }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endblock %}

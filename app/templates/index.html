@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}样品总览 · 实验室样品流转系统{% endblock %}
+
+{% block content %}
+<h1>样品总览</h1>
+
+<div class="grid grid-2">
+  <section class="card">
+    <h2 style="margin-top:4px">登记新样品</h2>
+    <form class="api-form" method="post" action="/api/samples" data-success="样品已登记">
+      <div class="row">
+        <div>
+          <label>样品编号 *</label>
+          <input name="sample_no" required maxlength="64" placeholder="如 SMP-2026-001">
+        </div>
+        <div>
+          <label>样品名称</label>
+          <input name="name" maxlength="160" placeholder="可选">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>温区下限 ℃ *</label>
+          <input name="temp_min" type="number" step="0.1" required>
+        </div>
+        <div>
+          <label>温区上限 ℃ *</label>
+          <input name="temp_max" type="number" step="0.1" required>
+        </div>
+      </div>
+      <label>当前位置 *</label>
+      <input name="location" required maxlength="160" placeholder="如 A 库 3 号冷柜">
+      <label>登记人 *</label>
+      <select name="created_by_id" required>
+        <option value="">请选择</option>
+        {% for s in staff %}<option value="{{ s.id }}">{{ s.name }}（{{ s.role }}）</option>{% endfor %}
+      </select>
+      <button type="submit">登记样品</button>
+    </form>
+
+    <details>
+      <summary>新增工作人员</summary>
+      <form class="api-form" method="post" action="/api/staff" data-success="人员已建档">
+        <div class="row">
+          <div>
+            <label>姓名 *</label>
+            <input name="name" required maxlength="80">
+          </div>
+          <div>
+            <label>岗位</label>
+            <input name="role" value="工作人员" maxlength="80">
+          </div>
+        </div>
+        <button type="submit" class="secondary">保存人员</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top:4px">最近异常 / 冲突记录</h2>
+    {% if exceptions %}
+    <table>
+      <thead><tr><th>时间 (UTC)</th><th>样品</th><th>类别</th><th>说明</th></tr></thead>
+      <tbody>
+        {% for a in exceptions %}
+        <tr>
+          <td class="nowrap">{{ a.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td>
+            {% if a.sample_id %}<a href="/samples/{{ a.sample_id }}">#{{ a.sample_id }}</a>{% else %}—{% endif %}
+          </td>
+          <td><span class="badge cat-{{ a.category }}">{{ a.detail.get('reason') or a.action }}</span></td>
+          <td class="mono" style="font-size:12px">
+            {{ a.detail.get('value', '') }}
+            {% if a.detail.get('allowed') %}允许 {{ a.detail.allowed }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="muted">暂无异常记录。</p>
+    {% endif %}
+    <p><a href="/audit">查看完整审计记录并导出 →</a></p>
+  </section>
+</div>
+
+<h2>全部样品（{{ overview|length }}）</h2>
+<section class="card">
+  {% if overview %}
+  <table>
+    <thead>
+      <tr>
+        <th>样品编号</th><th>名称</th><th>允许温区 ℃</th><th>当前位置</th>
+        <th>当前状态</th><th>最新读数</th><th>待确认交接</th><th>版本</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in overview %}
+      <tr>
+        <td class="mono">{{ s.sample_no }}</td>
+        <td>{{ s.name or '—' }}</td>
+        <td class="nowrap">{{ s.temp_min }} ~ {{ s.temp_max }}</td>
+        <td>{{ s.location }}</td>
+        <td><span class="badge {{ s.status.value }}">{{ status_labels[s.status] }}</span></td>
+        <td class="nowrap">
+          {% if s.latest_value is not none %}
+            <span class="{{ 'temp-ok' if s.latest_in_range else 'temp-bad' }}">{{ s.latest_value }} ℃</span>
+          {% else %}<span class="muted">无记录</span>{% endif %}
+        </td>
+        <td>
+          {% if s.pending_to %}
+            <span class="badge pending">待 {{ s.pending_receiver }} 确认 → {{ s.pending_to }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="mono">v{{ s.version }}</td>
+        <td><a class="btn tiny" href="/samples/{{ s.id }}">详情 / 操作</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">还没有样品，请先在左上角登记。</p>
+  {% endif %}
+</section>
+{% endblock %}

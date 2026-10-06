@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}实验室样品流转系统{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">🧪 实验室样品流转系统</div>
+  <nav>
+    <a href="/">样品总览</a>
+    <a href="/audit">审计记录</a>
+    <a href="/docs" target="_blank">API 文档</a>
+  </nav>
+</header>
+
+<div id="toast" class="toast hidden"></div>
+
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">并发操作以数据库最新状态为准（行锁 + 版本号）；冲突操作会被拒绝并明确提示。</footer>
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

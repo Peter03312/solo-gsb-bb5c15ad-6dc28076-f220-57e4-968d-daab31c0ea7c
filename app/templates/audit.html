@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}审计记录 · 实验室样品流转系统{% endblock %}
+
+{% block content %}
+<h1>
+  完整审计记录
+  <a class="btn tiny" href="/api/audit/export?fmt=csv" style="margin-left:12px">导出 CSV</a>
+  <a class="btn tiny secondary" href="/api/audit/export?fmt=json">导出 JSON</a>
+</h1>
+
+<section class="card">
+  <table>
+    <thead>
+      <tr><th>#</th><th>时间 (UTC)</th><th>动作</th><th>类别</th><th>样品</th><th>操作者</th><th>详情</th></tr>
+    </thead>
+    <tbody>
+      {% for a in audits %}
+      <tr>
+        <td>{{ a.id }}</td>
+        <td class="nowrap">{{ a.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>
+          {% set labels = {
+            "sample_created": "样品录入", "staff_created": "人员建档",
+            "handover_created": "发起交接", "handover_confirmed": "交接确认",
+            "handover_cancelled": "交接取消", "handover_invalidated": "交接失效",
+            "reading_recorded": "温度记录", "reading_corrected": "读数更正",
+            "temp_excursion": "温度越界", "isolation_opened": "隔离开启",
+            "isolation_closed": "隔离解除", "review_recorded": "复核结论",
+            "transfer_rejected": "拒绝转移", "confirm_rejected": "确认被拒"
+          } %}
+          {{ labels.get(a.action, a.action) }}
+        </td>
+        <td>
+          {% set cats = {"info": "常规", "warning": "关注", "exception": "异常", "conflict": "冲突"} %}
+          <span class="badge cat-{{ a.category }}">{{ cats.get(a.category, a.category) }}</span>
+        </td>
+        <td>
+          {% if a.sample_id %}<a href="/samples/{{ a.sample_id }}">#{{ a.sample_id }}</a>{% else %}—{% endif %}
+        </td>
+        <td>{{ a.actor_id if a.actor_id is not none else '—' }}</td>
+        <td class="mono" style="font-size:12px; max-width:480px; word-break:break-all">
+          {{ a.detail }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">页面展示最近 200 条；导出接口包含完整审计记录（上限 5000 条），可用 <span class="mono">?sample_id=</span> 限定单个样品。</p>
+</section>
+{% endblock %}
